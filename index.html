@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ninjago: Spinjitzu Sprint</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Shojumaru&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- React & ReactDOM (UMD for file:// support) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Polyfill for process.env -->
+    <script>
+      window.process = {
+        env: {
+          // TODO: PASTE YOUR GEMINI API KEY BELOW TO ENABLE MISSION GENERATION
+          API_KEY: '' 
+        }
+      };
+    </script>
+
+    <!-- 
+      Attempt to load Google GenAI SDK via ES Module.
+      NOTE: This will likely fail with CORS errors if opening via file:// protocol.
+      The app detects this and falls back to Offline Mode automatically.
+    -->
+    <script type="module">
+      try {
+        import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@0.1.1";
+        window.GoogleGenAI = GoogleGenAI;
+        window.SchemaType = Type; // Alias Type to global for usage
+      } catch (e) {
+        console.warn("Could not load GenAI SDK (likely running offline/file protocol)");
+      }
+    </script>
+
+    <style>
+      body {
+        font-family: 'Roboto', sans-serif;
+      }
+      h1, h2, h3, .ninja-font {
+        font-family: 'Shojumaru', system-ui;
+      }
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #1a202c; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #e53e3e; 
+        border-radius: 4px;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3"
+  }
+}
+</script>
+</head>
+  <body class="bg-slate-900 text-white overflow-hidden selection:bg-red-500 selection:text-white">
+    <div id="root"></div>
+
+    <!-- Main Game Script (No Module type to ensure it runs without CORS on file://) -->
+    <script type="text/babel">
+      const { useState, useEffect, useRef, useCallback } = React;
+      const { createRoot } = ReactDOM;
+
+      // --- TYPES & ENUMS ---
+      
+      const GameState = {
+        START_MENU: 'START_MENU',
+        TRAINING_SETUP: 'TRAINING_SETUP',
+        STORY_MODE: 'STORY_MODE',
+        LOADING_MISSION: 'LOADING_MISSION',
+        PLAYING: 'PLAYING',
+        GAME_OVER: 'GAME_OVER',
+      };
+
+      const NinjaElement = {
+        FIRE: 'FIRE',
+        LIGHTNING: 'LIGHTNING',
+        ICE: 'ICE',
+        EARTH: 'EARTH',
+        ENERGY: 'ENERGY',
+      };
+
+      // --- CONSTANTS ---
+
+      const CANVAS_WIDTH = 800;
+      const CANVAS_HEIGHT = 400;
+      const GROUND_HEIGHT = 50;
+
+      const GRAVITY = 0.6;
+      const JUMP_FORCE = -12;
+      const MOVE_SPEED_BASE = 5;
+
+      const ELEMENT_COLORS = {
+        [NinjaElement.FIRE]: '#EF4444', 
+        [NinjaElement.LIGHTNING]: '#3B82F6', 
+        [NinjaElement.ICE]: '#FFFFFF', 
+        [NinjaElement.EARTH]: '#1F2937', 
+        [NinjaElement.ENERGY]: '#10B981', 
+      };
+
+      const ENVIRONMENT_COLORS = {
+        // Dark/Night Mode Palettes
+        FOREST: { sky: '#022c22', ground: '#14532d', accent: '#15803d' }, 
+        VOLCANO: { sky: '#450a0a', ground: '#7f1d1d', accent: '#991b1b' }, 
+        ICE: { sky: '#082f49', ground: '#0369a1', accent: '#38bdf8' }, 
+        DOJO: { sky: '#111827', ground: '#374151', accent: '#6b7280' }, 
+      };
+
+      const PLAYER_SIZE = 40;
+
+      // --- SERVICES ---
+
+      const generateMission = async (ninjaName, element) => {
+        // Check if SDK loaded and API Key exists
+        if (!window.GoogleGenAI || !process.env.API_KEY) {
+          console.warn("API Key missing or SDK not loaded. Using fallback.");
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return {
+            missionTitle: window.GoogleGenAI ? "Offline Dojo (No Key)" : "Offline Dojo (No Connection)",
+            introText: "The Spirit Realm is quiet today. Train hard even without guidance.",
+            environmentType: "DOJO",
+            difficulty: 3,
+            obstacleTheme: "Training Dummies"
+          };
+        }
+
+        const ai = new window.GoogleGenAI({ apiKey: process.env.API_KEY });
+        const Type = window.SchemaType;
+
+        const missionSchema = {
+          type: Type.OBJECT,
+          properties: {
+            missionTitle: { type: Type.STRING, description: "A cool Ninjago-style mission name." },
+            introText: { type: Type.STRING, description: "A brief 2-sentence briefing from Master Wu." },
+            environmentType: { 
+              type: Type.STRING, 
+              enum: ["FOREST", "VOLCANO", "ICE", "DOJO"],
+              description: "The setting of the mission."
+            },
+            difficulty: { type: Type.INTEGER, description: "Difficulty level from 1 (easy) to 10 (hard)." },
+            obstacleTheme: { type: Type.STRING, description: "A short description of what enemies appear." }
+          },
+          required: ["missionTitle", "introText", "environmentType", "difficulty", "obstacleTheme"]
+        };
+
+        const prompt = `
+          You are Master Wu from Lego Ninjago. 
+          I am a ninja named ${ninjaName} with the element of ${element}.
+          Generate a training mission for me.
+          The mission should fit my element if possible.
+        `;
+
+        try {
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: missionSchema,
+              systemInstruction: "You are the wise Master Wu. Speak with wisdom."
+            }
+          });
+
+          if (response.text) {
+            return JSON.parse(response.text);
+          }
+          throw new Error("No response text generated");
+        } catch (error) {
+          console.error("Gemini Mission Generation Error:", error);
+          return {
+            missionTitle: "The Lost Scroll",
+            introText: "The connection to the Spirit Realm is weak. Run fast, Ninja!",
+            environmentType: "DOJO",
+            difficulty: 5,
+            obstacleTheme: "Unknown Shadows"
+          };
+        }
+      };
+
+      // --- COMPONENTS ---
+
+      const MissionBriefing = ({ onStartMission, isLoading }) => {
+        const [name, setName] = useState('Lloyd');
+        const [selectedElement, setSelectedElement] = useState(NinjaElement.ENERGY);
+
+        const handleSubmit = (e) => {
+          e.preventDefault();
+          if (name.trim()) {
+            onStartMission(name, selectedElement);
+          }
+        };
+
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[400px] w-full max-w-2xl mx-auto p-8 bg-amber-100 rounded-lg shadow-2xl border-4 border-amber-800 relative overflow-hidden">
+            <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/paper.png')]"></div>
+            
+            <div className="relative z-10 w-full text-center">
+              <h2 className="text-4xl text-amber-900 mb-6 ninja-font tracking-wider">Mission Briefing</h2>
+              
+              {isLoading ? (
+                <div className="flex flex-col items-center animate-pulse">
+                  <div className="text-2xl text-amber-800 mb-4 font-bold">Consulting the Scrolls...</div>
+                  <div className="w-16 h-16 border-4 border-amber-600 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="mt-4 text-amber-700 italic">"Patience is the true key to unlocking potential." - Master Wu</p>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div className="text-left">
+                    <label className="block text-amber-900 font-bold mb-2">Ninja Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full px-4 py-3 bg-amber-50 border-2 border-amber-300 rounded focus:outline-none focus:border-amber-600 text-amber-900 font-bold placeholder-amber-300 transition-colors"
+                      placeholder="Enter your name..."
+                      required
+                    />
+                  </div>
+
+                  <div className="text-left">
+                    <label className="block text-amber-900 font-bold mb-2">Select Element</label>
+                    <div className="grid grid-cols-5 gap-2">
+                      {Object.values(NinjaElement).map((elem) => (
+                        <button
+                          key={elem}
+                          type="button"
+                          onClick={() => setSelectedElement(elem)}
+                          className={`
+                            aspect-square rounded-lg flex items-center justify-center text-xs font-bold transition-all transform hover:scale-105
+                            ${selectedElement === elem ? 'ring-4 ring-offset-2 ring-amber-500 scale-105 shadow-lg' : 'opacity-70 hover:opacity-100'}
+                          `}
+                          style={{ backgroundColor: ELEMENT_COLORS[elem], color: elem === NinjaElement.ICE ? '#000' : '#FFF' }}
+                          title={elem}
+                        >
+                          {elem[0]}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-sm text-amber-700 font-medium">
+                      Current Element: <span style={{ color: ELEMENT_COLORS[selectedElement] }} className="drop-shadow-sm font-bold">{selectedElement}</span>
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-4 bg-red-600 hover:bg-red-700 text-white font-bold text-xl rounded shadow-lg transform transition active:scale-95 ninja-font tracking-wide border-b-4 border-red-800"
+                  >
+                    Start Training
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const SEGMENT_PATTERNS = [
+        { difficulty: 1, width: 200, obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 40 }] },
+        { difficulty: 3, width: 400, obstacles: [{ type: 'SPIKE', x: 0, y: 0, w: 30, h: 30 }, { type: 'SPIKE', x: 150, y: 0, w: 30, h: 30 }] },
+        { difficulty: 2, width: 300, obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 80 }] },
+        { difficulty: 3, width: 350, obstacles: [{ type: 'ENEMY', x: 0, y: 0, w: 40, h: 50 }, { type: 'BLOCK', x: 100, y: 0, w: 40, h: 40 }] },
+        { difficulty: 5, width: 600, obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 40 }, { type: 'BLOCK', x: 120, y: 50, w: 60, h: 20 }, { type: 'BLOCK', x: 280, y: 0, w: 40, h: 40 }] },
+        { difficulty: 7, width: 800, obstacles: [{ type: 'ENEMY', x: 0, y: 0, w: 40, h: 50 }, { type: 'SPIKE', x: 180, y: 0, w: 30, h: 30 }, { type: 'BLOCK', x: 350, y: 0, w: 40, h: 90 }, { type: 'ENEMY', x: 500, y: 0, w: 40, h: 50 }] },
+        { difficulty: 6, width: 500, obstacles: [{ type: 'SPIKE', x: 0, y: 0, w: 30, h: 30 }, { type: 'SPIKE', x: 100, y: 0, w: 30, h: 30 }, { type: 'SPIKE', x: 200, y: 0, w: 30, h: 30 }] }
+      ];
+
+      const GameCanvas = ({ missionData, ninjaElement, onGameOver }) => {
+        const canvasRef = useRef(null);
+        const scoreElemRef = useRef(null);
+        const energyBarInnerRef = useRef(null);
+        const spinBtnRef = useRef(null);
+        
+        const requestRef = useRef(0);
+        const scoreRef = useRef(0);
+        const frameCountRef = useRef(0);
+        
+        const playerRef = useRef({
+          x: 100,
+          y: CANVAS_HEIGHT - GROUND_HEIGHT - PLAYER_SIZE,
+          width: PLAYER_SIZE,
+          height: PLAYER_SIZE,
+          vy: 0,
+          isGrounded: true,
+          element: ninjaElement,
+          rotation: 0
+        });
+
+        const obstaclesRef = useRef([]);
+        const particlesRef = useRef([]);
+        const speedRef = useRef(MOVE_SPEED_BASE + (missionData.difficulty * 0.2));
+        const isGameOverRef = useRef(false);
+
+        // Map Gen
+        const nextSpawnXRef = useRef(CANVAS_WIDTH + 200);
+
+        const isSpinningRef = useRef(false);
+        const spinEnergyRef = useRef(100);
+
+        const createParticles = (x, y, color, count) => {
+          for (let i = 0; i < count; i++) {
+            particlesRef.current.push({
+              id: Math.random(),
+              x,
+              y,
+              vx: (Math.random() - 0.5) * 15,
+              vy: (Math.random() - 0.5) * 15,
+              life: 1.0,
+              color
+            });
+          }
+        };
+
+        const jump = useCallback(() => {
+          if (playerRef.current.isGrounded && !isGameOverRef.current) {
+            playerRef.current.vy = JUMP_FORCE;
+            playerRef.current.isGrounded = false;
+            playerRef.current.rotation = 0;
+            createParticles(playerRef.current.x + PLAYER_SIZE/2, playerRef.current.y + PLAYER_SIZE, '#ffffff', 5);
+          }
+        }, []);
+
+        const startSpin = useCallback(() => {
+          if (!isGameOverRef.current && spinEnergyRef.current > 10) {
+            isSpinningRef.current = true;
+          }
+        }, []);
+
+        const stopSpin = useCallback(() => {
+          isSpinningRef.current = false;
+        }, []);
+
+        useEffect(() => {
+          const handleKeyDown = (e) => {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+              e.preventDefault(); 
+              jump();
+            }
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyS') {
+              e.preventDefault();
+              startSpin();
+            }
+          };
+
+          const handleKeyUp = (e) => {
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyS') {
+              stopSpin();
+            }
+          };
+          
+          const handleCanvasTouch = (e) => {
+            const target = e.target;
+            if (target.closest('button')) return;
+            e.preventDefault();
+            jump();
+          };
+
+          window.addEventListener('keydown', handleKeyDown);
+          window.addEventListener('keyup', handleKeyUp);
+          const canvas = canvasRef.current;
+          if (canvas) {
+              canvas.addEventListener('touchstart', handleCanvasTouch);
+              canvas.addEventListener('mousedown', (e) => {
+                 const target = e.target;
+                 if (target.closest('button')) return;
+                 jump();
+              });
+          }
+
+          return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+            if (canvas) {
+              canvas.removeEventListener('touchstart', handleCanvasTouch);
+            }
+          };
+        }, [jump, startSpin, stopSpin]);
+
+        const update = useCallback((time) => {
+          if (isGameOverRef.current) return;
+
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return;
+
+          frameCountRef.current++;
+          scoreRef.current += 0.1;
+
+          if (scoreElemRef.current) {
+            scoreElemRef.current.textContent = `Distance: ${Math.floor(scoreRef.current)}m`;
+          }
+
+          if (isSpinningRef.current) {
+            spinEnergyRef.current -= 1.5;
+            if (spinEnergyRef.current <= 0) {
+              spinEnergyRef.current = 0;
+              isSpinningRef.current = false;
+            }
+          } else {
+            spinEnergyRef.current += 0.3;
+            if (spinEnergyRef.current > 100) spinEnergyRef.current = 100;
+          }
+
+          if (energyBarInnerRef.current) {
+            energyBarInnerRef.current.style.width = `${spinEnergyRef.current}%`;
+            energyBarInnerRef.current.style.backgroundColor = isSpinningRef.current ? '#fbbf24' : spinEnergyRef.current < 20 ? '#ef4444' : '#34d399';
+          }
+
+          if (spinBtnRef.current) {
+            if (spinEnergyRef.current < 10 && !isSpinningRef.current) {
+                spinBtnRef.current.style.filter = 'grayscale(100%) opacity(0.5)';
+            } else {
+                spinBtnRef.current.style.filter = 'none';
+            }
+          }
+
+          const player = playerRef.current;
+          player.vy += GRAVITY;
+          player.y += player.vy;
+
+          if (!isSpinningRef.current) {
+              if (!player.isGrounded) {
+                  player.rotation += 15;
+              } else {
+                  player.rotation = 0;
+              }
+          } else {
+              player.rotation += 45;
+          }
+
+          if (player.y + player.height >= CANVAS_HEIGHT - GROUND_HEIGHT) {
+            player.y = CANVAS_HEIGHT - GROUND_HEIGHT - player.height;
+            player.vy = 0;
+            player.isGrounded = true;
+          }
+
+          // --- MAP GEN ---
+          nextSpawnXRef.current -= speedRef.current;
+
+          if (nextSpawnXRef.current < CANVAS_WIDTH) {
+             const validPatterns = SEGMENT_PATTERNS.filter(p => p.difficulty <= (missionData.difficulty || 1) + 2);
+             const pattern = validPatterns[Math.floor(Math.random() * validPatterns.length)];
+             
+             pattern.obstacles.forEach(def => {
+               obstaclesRef.current.push({
+                 id: Date.now() + Math.random(),
+                 x: nextSpawnXRef.current + def.x,
+                 y: CANVAS_HEIGHT - GROUND_HEIGHT - (def.h || 40) - def.y,
+                 width: def.w || 40,
+                 height: def.h || 40,
+                 type: def.type,
+                 speed: speedRef.current
+               });
+             });
+
+             const gap = 150 + Math.random() * 200;
+             nextSpawnXRef.current += pattern.width + gap;
+          }
+
+          for (let i = obstaclesRef.current.length - 1; i >= 0; i--) {
+            const obs = obstaclesRef.current[i];
+            obs.x -= obs.speed;
+
+            if (
+              player.x < obs.x + obs.width - 10 && 
+              player.x + player.width - 10 > obs.x &&
+              player.y < obs.y + obs.height - 10 &&
+              player.y + player.height - 10 > obs.y
+            ) {
+              if (isSpinningRef.current) {
+                  obstaclesRef.current.splice(i, 1);
+                  createParticles(obs.x + obs.width/2, obs.y + obs.height/2, ELEMENT_COLORS[player.element], 15);
+                  createParticles(obs.x + obs.width/2, obs.y + obs.height/2, '#ffffff', 5);
+                  scoreRef.current += 10;
+                  continue;
+              } else {
+                  isGameOverRef.current = true;
+                  createParticles(player.x, player.y, ELEMENT_COLORS[player.element], 20);
+                  onGameOver(Math.floor(scoreRef.current));
+              }
+            }
+
+            if (obs.x + obs.width < 0) {
+              obstaclesRef.current.splice(i, 1);
+            }
+          }
+
+          for (let i = particlesRef.current.length - 1; i >= 0; i--) {
+            const p = particlesRef.current[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life -= 0.05;
+            if (p.life <= 0) particlesRef.current.splice(i, 1);
+          }
+
+          const colors = ENVIRONMENT_COLORS[missionData.environmentType] || ENVIRONMENT_COLORS.DOJO;
+          
+          ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+          const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+          gradient.addColorStop(0, colors.sky);
+          gradient.addColorStop(1, '#020617'); 
+          ctx.fillStyle = gradient;
+          ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+          ctx.fillStyle = colors.ground;
+          ctx.fillRect(0, CANVAS_HEIGHT - GROUND_HEIGHT, CANVAS_WIDTH, GROUND_HEIGHT);
+          
+          ctx.fillStyle = colors.accent;
+          for (let i=0; i < CANVAS_WIDTH; i += 40) {
+            const offset = (frameCountRef.current * speedRef.current) % 40;
+            ctx.beginPath();
+            ctx.arc(i - offset, CANVAS_HEIGHT - GROUND_HEIGHT + 15, 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          obstaclesRef.current.forEach(obs => {
+            ctx.save();
+            if (obs.type === 'SPIKE') {
+              ctx.fillStyle = '#9ca3af'; 
+              ctx.beginPath();
+              ctx.moveTo(obs.x, obs.y + obs.height);
+              ctx.lineTo(obs.x + obs.width / 2, obs.y);
+              ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+              ctx.fill();
+            } else if (obs.type === 'ENEMY') {
+              ctx.fillStyle = '#1e3a8a';
+              ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+              ctx.fillStyle = 'yellow';
+              ctx.fillRect(obs.x + 5, obs.y + 10, 8, 8);
+              ctx.fillRect(obs.x + 20, obs.y + 10, 8, 8);
+            } else {
+              ctx.fillStyle = '#7f1d1d';
+              ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+              ctx.fillStyle = '#991b1b';
+              ctx.fillRect(obs.x + 10, obs.y - 5, 20, 5);
+            }
+            ctx.restore();
+          });
+
+          if (isSpinningRef.current) {
+              ctx.save();
+              ctx.translate(player.x + player.width/2, player.y + player.height/2);
+              const wobble = Math.sin(frameCountRef.current * 0.5) * 5;
+              const grad = ctx.createRadialGradient(0, 0, 10, 0, 0, 60);
+              grad.addColorStop(0, ELEMENT_COLORS[player.element]);
+              grad.addColorStop(1, 'rgba(255,255,255,0)');
+              ctx.fillStyle = grad;
+              ctx.beginPath();
+              ctx.moveTo(-30 + wobble, -60);
+              ctx.lineTo(30 - wobble, -60);
+              ctx.lineTo(0, 30);
+              ctx.fill();
+              ctx.rotate(frameCountRef.current * 0.2);
+              ctx.strokeStyle = 'white';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.arc(0, -10, 40, 0, Math.PI * 1.5);
+              ctx.stroke();
+              ctx.restore();
+          }
+
+          ctx.save();
+          ctx.translate(player.x + player.width/2, player.y + player.height/2);
+          ctx.rotate((player.rotation * Math.PI) / 180);
+          ctx.fillStyle = '#facc15';
+          ctx.fillRect(-10, -18, 20, 18);
+          ctx.fillStyle = ELEMENT_COLORS[player.element];
+          ctx.fillRect(-12, -20, 24, 10);
+          ctx.fillRect(-12, -5, 24, 8);
+          ctx.fillStyle = 'black';
+          ctx.fillRect(-8, -10, 4, 4);
+          ctx.fillRect(4, -10, 4, 4);
+          ctx.fillStyle = ELEMENT_COLORS[player.element];
+          ctx.fillRect(-15, 0, 30, 20); 
+          ctx.fillStyle = 'black';
+          ctx.fillRect(-16, 12, 32, 4);
+          ctx.restore();
+
+          particlesRef.current.forEach(p => {
+            ctx.globalAlpha = p.life;
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1.0;
+          });
+
+          requestRef.current = requestAnimationFrame(() => update(time));
+        }, [missionData, onGameOver]);
+
+        useEffect(() => {
+          requestRef.current = requestAnimationFrame((time) => update(time));
+          return () => cancelAnimationFrame(requestRef.current);
+        }, [update]);
+
+        return (
+          <div className="relative group select-none">
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              className="border-4 border-slate-800 rounded-lg shadow-xl bg-gray-900 cursor-pointer touch-none w-full max-w-[800px] h-auto"
+            />
+            <div 
+              ref={scoreElemRef}
+              className="absolute top-4 right-4 text-3xl font-bold ninja-font text-white drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]"
+            >
+              Distance: 0m
+            </div>
+            <div className="absolute top-4 left-4 w-48 h-6 bg-slate-900/80 border-2 border-white/50 rounded-full overflow-hidden">
+              <div 
+                  ref={energyBarInnerRef}
+                  className="h-full bg-emerald-400 transition-all duration-75 ease-linear w-full"
+              ></div>
+              <div className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-bold uppercase tracking-wider">
+                  Spinjitzu Energy
+              </div>
+            </div>
+            <div className="absolute top-16 left-4 text-white/50 text-xs pointer-events-none hidden md:block">
+              [Space] Jump • [Shift] Spin
+            </div>
+
+            {/* Mobile Controls Overlay */}
+            <div className="absolute inset-0 pointer-events-none flex flex-col justify-end pb-4 px-4">
+              <div className="flex justify-between items-end w-full pointer-events-auto">
+                  
+                  {/* JUMP BUTTON (Left) */}
+                  <button
+                      className="w-20 h-20 rounded-full bg-blue-600 border-4 border-blue-400 shadow-[0_4px_0_rgb(30,58,138)] active:shadow-none active:translate-y-1 active:bg-blue-700 flex items-center justify-center group select-none touch-none"
+                      onTouchStart={(e) => { e.preventDefault(); jump(); }}
+                      onMouseDown={(e) => { e.preventDefault(); jump(); }}
+                  >
+                      <div className="text-white text-xs font-bold ninja-font text-center leading-tight drop-shadow-md">
+                          JUMP
+                      </div>
+                  </button>
+
+                  {/* SPIN BUTTON (Right) */}
+                  <button 
+                      ref={spinBtnRef}
+                      id="spin-btn"
+                      className="w-24 h-24 rounded-full bg-yellow-500 border-4 border-yellow-300 shadow-[0_4px_0_rgb(161,98,7)] active:shadow-none active:translate-y-1 active:bg-yellow-600 flex items-center justify-center select-none touch-none transition-all"
+                      onTouchStart={(e) => { e.preventDefault(); startSpin(); }}
+                      onTouchEnd={(e) => { e.preventDefault(); stopSpin(); }}
+                      onMouseDown={(e) => { e.preventDefault(); startSpin(); }}
+                      onMouseUp={(e) => { e.preventDefault(); stopSpin(); }}
+                      onMouseLeave={() => stopSpin()}
+                  >
+                      <div className="flex flex-col items-center pointer-events-none">
+                          <span className="ninja-font text-yellow-900 text-sm font-bold leading-none drop-shadow-sm">SPIN</span>
+                          <span className="text-[10px] text-yellow-900 font-bold uppercase mt-1">Hold</span>
+                      </div>
+                  </button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- APP ---
+
+      const App = () => {
+        const [gameState, setGameState] = useState(GameState.START_MENU);
+        const [missionData, setMissionData] = useState(null);
+        const [ninjaElement, setNinjaElement] = useState(NinjaElement.ENERGY);
+        
+        // Scoring & Points
+        const [lastScore, setLastScore] = useState(0);
+        const [earnedPointsInRun, setEarnedPointsInRun] = useState(0);
+        const [totalNinjaPoints, setTotalNinjaPoints] = useState(0);
+        
+        const [isLoading, setIsLoading] = useState(false);
+
+        // Load points from local storage
+        useEffect(() => {
+          const savedPoints = localStorage.getItem('ninjaPoints');
+          if (savedPoints) {
+            setTotalNinjaPoints(parseInt(savedPoints, 10));
+          }
+        }, []);
+
+        const handleStartMission = async (name, element) => {
+          setNinjaElement(element);
+          setIsLoading(true);
+          setGameState(GameState.LOADING_MISSION);
+          
+          try {
+            const data = await generateMission(name, element);
+            setMissionData(data);
+            setGameState(GameState.PLAYING);
+          } catch (error) {
+            console.error("Failed to start mission", error);
+            setGameState(GameState.TRAINING_SETUP);
+          } finally {
+            setIsLoading(false);
+          }
+        };
+
+        const handleGameOver = (score) => {
+          setLastScore(score);
+          
+          // Calculate Ninja Points (1 per 100 score)
+          const newPoints = Math.floor(score / 100);
+          setEarnedPointsInRun(newPoints);
+          
+          const newTotal = totalNinjaPoints + newPoints;
+          setTotalNinjaPoints(newTotal);
+          localStorage.setItem('ninjaPoints', newTotal.toString());
+          
+          setGameState(GameState.GAME_OVER);
+        };
+
+        const resetGame = () => {
+          setGameState(GameState.TRAINING_SETUP);
+          setMissionData(null);
+        };
+        
+        const goToMainMenu = () => {
+          setGameState(GameState.START_MENU);
+          setMissionData(null);
+        };
+        
+        const isFullPotentialUnlocked = totalNinjaPoints >= 15;
+        const progressPercent = Math.min((totalNinjaPoints / 15) * 100, 100);
+
+        return (
+          <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
+            
+            <div 
+              className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat"
+              style={{ 
+                backgroundImage: "url('https://vignette.wikia.nocookie.net/ninjago/images/d/d0/S8NinjagoCity.png/revision/latest?cb=20170730210528')"
+              }}
+            />
+            
+            <div className="absolute inset-0 z-0 bg-black/60 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-80" />
+
+            <div className="relative z-10 w-full flex flex-col items-center">
+              <h1 className="text-5xl md:text-6xl text-red-600 mb-2 ninja-font drop-shadow-[0_0_10px_rgba(220,38,38,0.8)] text-center">
+                Spinjitzu Sprint
+              </h1>
+              <p className="text-slate-200 mb-8 tracking-widest uppercase text-sm font-bold drop-shadow-md">A Gemini Powered Ninja Training</p>
+
+              {/* API Key / SDK Status Warning */}
+              {(!process.env.API_KEY || !window.GoogleGenAI) && gameState !== GameState.PLAYING && (
+                 <div className="bg-orange-500/90 text-white px-4 py-2 rounded mb-4 font-bold border border-orange-400 text-sm max-w-lg text-center shadow-lg">
+                    {window.GoogleGenAI ? 
+                      "⚠️ API Key Missing! Edit index.html to add your key or play Offline." : 
+                      "⚠️ Offline Mode: AI features disabled (SDK blocked by file:// protocol)."}
+                 </div>
+              )}
+
+              {gameState === GameState.START_MENU && (
+                <div className="w-full max-w-4xl flex flex-col gap-6">
+                  
+                  {/* Ninja Status Bar */}
+                  <div className="bg-slate-800/90 border-2 border-slate-600 p-6 rounded-xl shadow-2xl backdrop-blur-sm">
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-2">
+                      <h3 className="text-xl text-yellow-500 ninja-font">Ninja Status</h3>
+                      <div className="text-white font-bold text-lg">
+                        {totalNinjaPoints} Ninja Points
+                      </div>
+                    </div>
+                    
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-900 h-6 rounded-full border border-slate-700 overflow-hidden relative">
+                      <div 
+                        className={`h-full transition-all duration-1000 ${isFullPotentialUnlocked ? 'bg-gradient-to-r from-yellow-400 to-red-500 animate-pulse' : 'bg-green-500'}`}
+                        style={{ width: `${progressPercent}%` }}
+                      ></div>
+                      <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white shadow-black drop-shadow-md">
+                         {isFullPotentialUnlocked ? 'TRUE POTENTIAL UNLOCKED' : `${totalNinjaPoints} / 15 to True Potential`}
+                      </div>
+                    </div>
+                    
+                    {isFullPotentialUnlocked && (
+                      <div className="mt-2 text-center text-xs text-yellow-300 font-bold uppercase tracking-widest animate-bounce">
+                        ⚠ Secret Technique Available (Coming Soon) ⚠
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col md:flex-row gap-8 items-stretch w-full">
+                    <button 
+                      onClick={() => setGameState(GameState.TRAINING_SETUP)}
+                      className="flex-1 bg-slate-800/90 border-4 border-yellow-500 hover:border-yellow-400 p-8 rounded-xl shadow-2xl transition-all hover:scale-105 group text-left relative overflow-hidden"
+                    >
+                      <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-40 transition-opacity">
+                        <div className="w-24 h-24 bg-yellow-500 rounded-full blur-2xl"></div>
+                      </div>
+                      <h2 className="text-3xl text-yellow-500 ninja-font mb-4">Training Mode</h2>
+                      <p className="text-slate-300 mb-6">
+                        Endless procedural challenges generated by Master Wu. Earn 1 Ninja Point for every 100m.
+                      </p>
+                      <div className="inline-block px-4 py-2 bg-yellow-600 text-slate-900 font-bold rounded uppercase text-sm">
+                        Enter Dojo
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={() => setGameState(GameState.STORY_MODE)}
+                      className="flex-1 bg-slate-800/90 border-4 border-slate-600 hover:border-slate-500 p-8 rounded-xl shadow-2xl transition-all hover:scale-105 group text-left relative overflow-hidden"
+                    >
+                      <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <div className="w-24 h-24 bg-red-500 rounded-full blur-2xl"></div>
+                      </div>
+                      <h2 className="text-3xl text-slate-400 group-hover:text-red-400 transition-colors ninja-font mb-4">Story Mode</h2>
+                      <p className="text-slate-400 mb-6">
+                        Embark on an epic quest to save Ninjago City from the Overlord.
+                      </p>
+                      <div className="inline-block px-4 py-2 bg-slate-700 text-slate-400 font-bold rounded uppercase text-sm border border-slate-600">
+                        Coming Soon
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {gameState === GameState.STORY_MODE && (
+                <div className="text-center bg-slate-800/95 backdrop-blur p-12 rounded-lg border-4 border-slate-600 shadow-2xl max-w-2xl w-full">
+                  <h2 className="text-4xl text-slate-300 mb-4 ninja-font">Story Mode</h2>
+                  <div className="w-24 h-1 bg-red-600 mx-auto mb-6"></div>
+                  <p className="text-white text-xl mb-8 leading-relaxed">
+                    The scrolls for this adventure are still being written. Master Wu is meditating on the plot twists.
+                    <br/><br/>
+                    <span className="text-slate-400 text-sm">Check back in a future update!</span>
+                  </p>
+                  <button 
+                    onClick={goToMainMenu}
+                    className="px-8 py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded shadow-lg transition transform hover:scale-105"
+                  >
+                    Back to Menu
+                  </button>
+                </div>
+              )}
+
+              {gameState === GameState.TRAINING_SETUP && (
+                <div className="w-full flex flex-col items-center">
+                  <MissionBriefing onStartMission={handleStartMission} isLoading={false} />
+                  <button 
+                    onClick={goToMainMenu}
+                    className="mt-6 text-slate-400 hover:text-white underline text-sm transition-colors"
+                  >
+                    Back to Main Menu
+                  </button>
+                </div>
+              )}
+
+              {gameState === GameState.LOADING_MISSION && (
+                <MissionBriefing onStartMission={() => {}} isLoading={true} />
+              )}
+
+              {gameState === GameState.PLAYING && missionData && (
+                <div className="flex flex-col items-center w-full max-w-4xl">
+                  <div className="w-full bg-slate-800/90 backdrop-blur-sm p-4 rounded-t-lg border-x-4 border-t-4 border-slate-700 flex justify-between items-center text-white shadow-xl">
+                    <div>
+                      <h3 className="text-xl text-yellow-500 ninja-font">{missionData.missionTitle}</h3>
+                      <p className="text-xs text-slate-400">{missionData.obstacleTheme} • Diff: {missionData.difficulty}/10</p>
+                    </div>
+                    <div className="text-right max-w-md hidden md:block">
+                      <p className="italic text-sm text-slate-300">"{missionData.introText}"</p>
+                    </div>
+                  </div>
+                  <GameCanvas 
+                    missionData={missionData} 
+                    ninjaElement={ninjaElement} 
+                    onGameOver={handleGameOver} 
+                  />
+                </div>
+              )}
+
+              {gameState === GameState.GAME_OVER && (
+                <div className="text-center bg-slate-800/95 backdrop-blur p-8 rounded-lg border-4 border-red-900 shadow-2xl max-w-md w-full">
+                  <h2 className="text-4xl text-red-500 mb-4 ninja-font">Mission Failed!</h2>
+                  <p className="text-white text-xl mb-6">You stumbled, but a ninja always gets back up.</p>
+                  
+                  <div className="bg-slate-900/50 p-4 rounded-lg mb-8">
+                    <div className="text-slate-400 text-sm uppercase font-bold tracking-wider">Distance Reached</div>
+                    <div className="text-5xl font-bold text-white mb-2">{lastScore}m</div>
+                    
+                    <div className="flex items-center justify-center gap-2 mt-4 text-emerald-400">
+                      <span className="text-xl font-bold">+{earnedPointsInRun} Ninja Points</span>
+                      {earnedPointsInRun > 0 && (
+                        <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-emerald-400 opacity-75"></span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-1">Total: {totalNinjaPoints} Points</div>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <button 
+                      onClick={resetGame}
+                      className="px-8 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg transition transform hover:scale-105 ninja-font"
+                    >
+                      Train Again
+                    </button>
+                    <button 
+                      onClick={goToMainMenu}
+                      className="px-8 py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded shadow-lg transition transform hover:scale-105"
+                    >
+                      Main Menu
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>

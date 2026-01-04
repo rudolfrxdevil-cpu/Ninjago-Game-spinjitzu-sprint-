@@ -1,0 +1,5 @@
+{
+  "name": "Ninjago: Spinjitzu Sprint",
+  "description": "A 2D endless runner where Master Wu generates unique training missions for you using Gemini AI.",
+  "requestFramePermissions": []
+}
