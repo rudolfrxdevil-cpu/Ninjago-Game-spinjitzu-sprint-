@@ -26,17 +26,17 @@
 
     <!-- 
       Attempt to load Google GenAI SDK via ES Module.
-      NOTE: This will likely fail with CORS errors if opening via file:// protocol.
-      The app detects this and falls back to Offline Mode automatically.
+      Using dynamic import to avoid SyntaxError inside blocks and handle offline/file protocol errors.
     -->
     <script type="module">
-      try {
-        import { GoogleGenAI, Type } from "https://esm.sh/@google/genai@0.1.1";
-        window.GoogleGenAI = GoogleGenAI;
-        window.SchemaType = Type; // Alias Type to global for usage
-      } catch (e) {
-        console.warn("Could not load GenAI SDK (likely running offline/file protocol)");
-      }
+      import("https://esm.sh/@google/genai@0.1.1")
+        .then((module) => {
+          window.GoogleGenAI = module.GoogleGenAI;
+          window.SchemaType = module.Type; // Alias Type to global for usage
+        })
+        .catch((e) => {
+          console.warn("Could not load GenAI SDK (likely running offline/file protocol)", e);
+        });
     </script>
 
     <style>
@@ -556,6 +556,7 @@
           if (isSpinningRef.current) {
               ctx.save();
               ctx.translate(player.x + player.width/2, player.y + player.height/2);
+              // --- RESTORED "OLD" WOBBLE CONE VISUALS ---
               const wobble = Math.sin(frameCountRef.current * 0.5) * 5;
               const grad = ctx.createRadialGradient(0, 0, 10, 0, 0, 60);
               grad.addColorStop(0, ELEMENT_COLORS[player.element]);

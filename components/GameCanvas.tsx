@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { 
   CANVAS_WIDTH, 
   CANVAS_HEIGHT, 
@@ -10,7 +10,7 @@ import {
   ENVIRONMENT_COLORS, 
   ELEMENT_COLORS
 } from '../constants';
-import { GameState, MissionData, NinjaElement, PlayerState, Obstacle, Particle } from '../types';
+import { MissionData, NinjaElement, PlayerState, Obstacle, Particle } from '../types';
 
 interface GameCanvasProps {
   missionData: MissionData;
@@ -18,69 +18,14 @@ interface GameCanvasProps {
   onGameOver: (score: number) => void;
 }
 
-// Define Segment Patterns for "Map" Generation
 const SEGMENT_PATTERNS = [
-  // 1. Basic Block (Easy)
-  { 
-    difficulty: 1, 
-    width: 200, 
-    obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 40 }] 
-  },
-  // 2. Double Spikes (Timing)
-  { 
-    difficulty: 3, 
-    width: 400, 
-    obstacles: [
-      { type: 'SPIKE', x: 0, y: 0, w: 30, h: 30 },
-      { type: 'SPIKE', x: 150, y: 0, w: 30, h: 30 }
-    ] 
-  },
-  // 3. The High Wall (Requires full jump)
-  { 
-    difficulty: 2, 
-    width: 300, 
-    obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 80 }] 
-  },
-  // 4. Enemy Guard (Combat/Spin)
-  { 
-    difficulty: 3, 
-    width: 350, 
-    obstacles: [
-      { type: 'ENEMY', x: 0, y: 0, w: 40, h: 50 },
-      { type: 'BLOCK', x: 100, y: 0, w: 40, h: 40 }
-    ] 
-  },
-  // 5. Parkour Stairs (Precision)
-  { 
-    difficulty: 5, 
-    width: 600, 
-    obstacles: [
-      { type: 'BLOCK', x: 0, y: 0, w: 40, h: 40 },
-      { type: 'BLOCK', x: 120, y: 50, w: 60, h: 20 }, // Floating Platform
-      { type: 'BLOCK', x: 280, y: 0, w: 40, h: 40 }
-    ] 
-  },
-  // 6. The Gauntlet (Hard)
-  { 
-    difficulty: 7, 
-    width: 800, 
-    obstacles: [
-      { type: 'ENEMY', x: 0, y: 0, w: 40, h: 50 },
-      { type: 'SPIKE', x: 180, y: 0, w: 30, h: 30 },
-      { type: 'BLOCK', x: 350, y: 0, w: 40, h: 90 }, // Tall wall
-      { type: 'ENEMY', x: 500, y: 0, w: 40, h: 50 }
-    ] 
-  },
-  // 7. Triple Spikes (The Floor is Lava)
-  {
-    difficulty: 6,
-    width: 500,
-    obstacles: [
-      { type: 'SPIKE', x: 0, y: 0, w: 30, h: 30 },
-      { type: 'SPIKE', x: 100, y: 0, w: 30, h: 30 },
-      { type: 'SPIKE', x: 200, y: 0, w: 30, h: 30 }
-    ]
-  }
+  { difficulty: 1, width: 200, obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 40 }] },
+  { difficulty: 3, width: 400, obstacles: [{ type: 'SPIKE', x: 0, y: 0, w: 30, h: 30 }, { type: 'SPIKE', x: 150, y: 0, w: 30, h: 30 }] },
+  { difficulty: 2, width: 300, obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 80 }] },
+  { difficulty: 3, width: 350, obstacles: [{ type: 'ENEMY', x: 0, y: 0, w: 40, h: 50 }, { type: 'BLOCK', x: 100, y: 0, w: 40, h: 40 }] },
+  { difficulty: 5, width: 600, obstacles: [{ type: 'BLOCK', x: 0, y: 0, w: 40, h: 40 }, { type: 'BLOCK', x: 120, y: 50, w: 60, h: 20 }, { type: 'BLOCK', x: 280, y: 0, w: 40, h: 40 }] },
+  { difficulty: 7, width: 800, obstacles: [{ type: 'ENEMY', x: 0, y: 0, w: 40, h: 50 }, { type: 'SPIKE', x: 180, y: 0, w: 30, h: 30 }, { type: 'BLOCK', x: 350, y: 0, w: 40, h: 90 }, { type: 'ENEMY', x: 500, y: 0, w: 40, h: 50 }] },
+  { difficulty: 6, width: 500, obstacles: [{ type: 'SPIKE', x: 0, y: 0, w: 30, h: 30 }, { type: 'SPIKE', x: 100, y: 0, w: 30, h: 30 }, { type: 'SPIKE', x: 200, y: 0, w: 30, h: 30 }] }
 ];
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGameOver }) => {
@@ -93,7 +38,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
   const scoreRef = useRef<number>(0);
   const frameCountRef = useRef<number>(0);
   
-  // Game State Refs
   const playerRef = useRef<PlayerState>({
     x: 100,
     y: CANVAS_HEIGHT - GROUND_HEIGHT - PLAYER_SIZE,
@@ -109,11 +53,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
   const particlesRef = useRef<Particle[]>([]);
   const speedRef = useRef<number>(MOVE_SPEED_BASE + (missionData.difficulty * 0.2));
   const isGameOverRef = useRef<boolean>(false);
-  
-  // Map Generation State
-  const nextSpawnXRef = useRef<number>(CANVAS_WIDTH + 200); // Start spawning a bit off screen
+  const nextSpawnXRef = useRef<number>(CANVAS_WIDTH + 200);
 
-  // Spinjitzu State
   const isSpinningRef = useRef<boolean>(false);
   const spinEnergyRef = useRef<number>(100); 
 
@@ -168,12 +109,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       }
     };
     
-    // Canvas Touch Handler for fallback (tapping anywhere jumps)
     const handleCanvasTouch = (e: TouchEvent) => {
       const target = e.target as HTMLElement;
-      // Prevent jump if touching specific buttons (although buttons have stopPropagation, this is safety)
       if (target.closest('button')) return;
-      
       e.preventDefault();
       jump();
     };
@@ -200,7 +138,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
     };
   }, [jump, startSpin, stopSpin]);
 
-  // Main Game Loop
   const update = useCallback((time: number) => {
     if (isGameOverRef.current) return;
 
@@ -216,7 +153,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       scoreElemRef.current.textContent = `Distance: ${Math.floor(scoreRef.current)}m`;
     }
 
-    // --- Spinjitzu Energy ---
     if (isSpinningRef.current) {
       spinEnergyRef.current -= 1.5;
       if (spinEnergyRef.current <= 0) {
@@ -233,7 +169,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       energyBarInnerRef.current.style.backgroundColor = isSpinningRef.current ? '#fbbf24' : spinEnergyRef.current < 20 ? '#ef4444' : '#34d399';
     }
 
-    // Update Spin Button visual state
     if (spinBtnRef.current) {
       if (spinEnergyRef.current < 10 && !isSpinningRef.current) {
         spinBtnRef.current.style.filter = 'grayscale(100%) opacity(0.5)';
@@ -242,7 +177,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       }
     }
 
-    // --- Physics ---
     const player = playerRef.current;
     player.vy += GRAVITY;
     player.y += player.vy;
@@ -263,11 +197,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       player.isGrounded = true;
     }
 
-    // --- MAP GENERATION (SEGMENTS) ---
-    // Move the spawn point with the world
     nextSpawnXRef.current -= speedRef.current;
 
-    // If we have empty space on the right, spawn a new segment
     if (nextSpawnXRef.current < CANVAS_WIDTH) {
       const validPatterns = SEGMENT_PATTERNS.filter(p => p.difficulty <= (missionData.difficulty || 1) + 2);
       const pattern = validPatterns[Math.floor(Math.random() * validPatterns.length)];
@@ -288,12 +219,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       nextSpawnXRef.current += pattern.width + gap;
     }
 
-    // --- Update Obstacles ---
     for (let i = obstaclesRef.current.length - 1; i >= 0; i--) {
       const obs = obstaclesRef.current[i];
       obs.x -= obs.speed;
 
-      // Collision
       if (
         player.x < obs.x + obs.width - 10 && 
         player.x + player.width - 10 > obs.x &&
@@ -318,7 +247,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       }
     }
 
-    // Update Particles
     for (let i = particlesRef.current.length - 1; i >= 0; i--) {
       const p = particlesRef.current[i];
       p.x += p.vx;
@@ -327,23 +255,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       if (p.life <= 0) particlesRef.current.splice(i, 1);
     }
 
-    // --- Render ---
     const colors = ENVIRONMENT_COLORS[missionData.environmentType] || ENVIRONMENT_COLORS.DOJO;
-    
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Background
     const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
     gradient.addColorStop(0, colors.sky);
     gradient.addColorStop(1, '#020617'); 
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Ground
     ctx.fillStyle = colors.ground;
     ctx.fillRect(0, CANVAS_HEIGHT - GROUND_HEIGHT, CANVAS_WIDTH, GROUND_HEIGHT);
     
-    // Ground Texture
     ctx.fillStyle = colors.accent;
     for (let i=0; i < CANVAS_WIDTH; i += 40) {
       const offset = (frameCountRef.current * speedRef.current) % 40;
@@ -352,7 +275,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       ctx.fill();
     }
 
-    // Obstacles
     obstaclesRef.current.forEach(obs => {
       ctx.save();
       if (obs.type === 'SPIKE') {
@@ -377,7 +299,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       ctx.restore();
     });
 
-    // Spinjitzu
     if (isSpinningRef.current) {
         ctx.save();
         ctx.translate(player.x + player.width/2, player.y + player.height/2);
@@ -400,10 +321,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
         ctx.restore();
     }
 
-    // Player
     ctx.save();
     ctx.translate(player.x + player.width/2, player.y + player.height/2);
     ctx.rotate((player.rotation * Math.PI) / 180);
+    
     ctx.fillStyle = '#facc15';
     ctx.fillRect(-10, -18, 20, 18);
     ctx.fillStyle = ELEMENT_COLORS[player.element];
@@ -418,7 +339,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
     ctx.fillRect(-16, 12, 32, 4);
     ctx.restore();
 
-    // Particles
     particlesRef.current.forEach(p => {
       ctx.globalAlpha = p.life;
       ctx.fillStyle = p.color;
@@ -466,11 +386,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
         [Space] Jump • [Shift] Spin
       </div>
 
-      {/* Mobile Controls Overlay */}
       <div className="absolute inset-0 pointer-events-none flex flex-col justify-end pb-4 px-4">
         <div className="flex justify-between items-end w-full pointer-events-auto">
-            
-            {/* JUMP BUTTON (Left) */}
             <button
                 className="w-20 h-20 rounded-full bg-blue-600 border-4 border-blue-400 shadow-[0_4px_0_rgb(30,58,138)] active:shadow-none active:translate-y-1 active:bg-blue-700 flex items-center justify-center group select-none touch-none"
                 onTouchStart={(e) => { e.preventDefault(); jump(); }}
@@ -481,7 +398,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
                 </div>
             </button>
 
-            {/* SPIN BUTTON (Right) */}
             <button 
                 ref={spinBtnRef}
                 id="spin-btn"
@@ -499,7 +415,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
             </button>
         </div>
      </div>
-
     </div>
   );
 };
