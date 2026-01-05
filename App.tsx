@@ -3,6 +3,7 @@ import GameCanvas from './components/GameCanvas';
 import MissionBriefing from './components/MissionBriefing';
 import { GameState, MissionData, NinjaElement } from './types';
 import { generateMission } from './services/geminiService';
+import { soundManager } from './utils/sound';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.START_MENU);
@@ -15,6 +16,7 @@ const App: React.FC = () => {
   const [totalNinjaPoints, setTotalNinjaPoints] = useState(0);
   
   const [isLoading, setIsLoading] = useState(false);
+  const [isMuted, setIsMuted] = useState(soundManager.getMuted());
 
   // Load points from local storage on mount
   useEffect(() => {
@@ -25,6 +27,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleStartMission = async (name: string, element: NinjaElement) => {
+    soundManager.playClick();
     setNinjaElement(element);
     setIsLoading(true);
     setGameState(GameState.LOADING_MISSION);
@@ -57,13 +60,22 @@ const App: React.FC = () => {
   };
 
   const resetGame = () => {
+    soundManager.playClick();
     setGameState(GameState.TRAINING_SETUP);
     setMissionData(null);
   };
   
   const goToMainMenu = () => {
+    soundManager.playClick();
     setGameState(GameState.START_MENU);
     setMissionData(null);
+  };
+
+  const toggleMute = () => {
+    const muted = soundManager.toggleMute();
+    setIsMuted(muted);
+    // soundManager.playClick(); // Don't play click if we just muted it
+    if (!muted) soundManager.playClick();
   };
 
   const isFullPotentialUnlocked = totalNinjaPoints >= 15;
@@ -82,6 +94,14 @@ const App: React.FC = () => {
       
       {/* Dark Overlay for readability */}
       <div className="absolute inset-0 z-0 bg-black/60 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-80" />
+      
+      {/* Mute Button */}
+      <button 
+        onClick={toggleMute}
+        className="absolute top-4 right-4 z-50 bg-slate-800/80 p-3 rounded-full border-2 border-slate-500 hover:bg-slate-700 text-white transition-all shadow-lg"
+      >
+        {isMuted ? '🔇' : '🔊'}
+      </button>
 
       {/* Main Content */}
       <div className="relative z-10 w-full flex flex-col items-center">
@@ -124,7 +144,10 @@ const App: React.FC = () => {
             <div className="flex flex-col md:flex-row gap-8 items-stretch w-full">
               {/* Training Mode Card */}
               <button 
-                onClick={() => setGameState(GameState.TRAINING_SETUP)}
+                onClick={() => {
+                  soundManager.playClick();
+                  setGameState(GameState.TRAINING_SETUP);
+                }}
                 className="flex-1 bg-slate-800/90 border-4 border-yellow-500 hover:border-yellow-400 p-8 rounded-xl shadow-2xl transition-all hover:scale-105 group text-left relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-40 transition-opacity">
@@ -141,7 +164,10 @@ const App: React.FC = () => {
 
               {/* Story Mode Card */}
               <button 
-                onClick={() => setGameState(GameState.STORY_MODE)}
+                onClick={() => {
+                  soundManager.playClick();
+                  setGameState(GameState.STORY_MODE);
+                }}
                 className="flex-1 bg-slate-800/90 border-4 border-slate-600 hover:border-slate-500 p-8 rounded-xl shadow-2xl transition-all hover:scale-105 group text-left relative overflow-hidden"
               >
                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">

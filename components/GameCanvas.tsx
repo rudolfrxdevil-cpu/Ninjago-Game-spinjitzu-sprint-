@@ -11,6 +11,7 @@ import {
   ELEMENT_COLORS
 } from '../constants';
 import { MissionData, NinjaElement, PlayerState, Obstacle, Particle } from '../types';
+import { soundManager } from '../utils/sound';
 
 interface GameCanvasProps {
   missionData: MissionData;
@@ -58,6 +59,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
   const isSpinningRef = useRef<boolean>(false);
   const spinEnergyRef = useRef<number>(100); 
 
+  // Ensure spin sound stops on unmount or game over
+  useEffect(() => {
+    return () => {
+        soundManager.stopSpin();
+    };
+  }, []);
+
   const createParticles = (x: number, y: number, color: string, count: number) => {
     for (let i = 0; i < count; i++) {
       particlesRef.current.push({
@@ -74,6 +82,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
 
   const jump = useCallback(() => {
     if (playerRef.current.isGrounded && !isGameOverRef.current) {
+      soundManager.playJump();
       playerRef.current.vy = JUMP_FORCE;
       playerRef.current.isGrounded = false;
       playerRef.current.rotation = 0;
@@ -83,12 +92,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
 
   const startSpin = useCallback(() => {
     if (!isGameOverRef.current && spinEnergyRef.current > 10) {
+      if (!isSpinningRef.current) {
+        soundManager.startSpin();
+      }
       isSpinningRef.current = true;
     }
   }, []);
 
   const stopSpin = useCallback(() => {
     isSpinningRef.current = false;
+    soundManager.stopSpin();
   }, []);
 
   useEffect(() => {
@@ -158,6 +171,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       if (spinEnergyRef.current <= 0) {
         spinEnergyRef.current = 0;
         isSpinningRef.current = false;
+        soundManager.stopSpin(); // Force stop sound if energy runs out
       }
     } else {
       spinEnergyRef.current += 0.3;
@@ -231,12 +245,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       ) {
         if (isSpinningRef.current) {
             obstaclesRef.current.splice(i, 1);
+            soundManager.playCollect();
             createParticles(obs.x + obs.width/2, obs.y + obs.height/2, ELEMENT_COLORS[player.element], 15);
             createParticles(obs.x + obs.width/2, obs.y + obs.height/2, '#ffffff', 5);
             scoreRef.current += 10;
             continue;
         } else {
             isGameOverRef.current = true;
+            soundManager.stopSpin();
+            soundManager.playCrash();
             createParticles(player.x, player.y, ELEMENT_COLORS[player.element], 20);
             onGameOver(Math.floor(scoreRef.current));
         }
@@ -302,6 +319,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
     if (isSpinningRef.current) {
         ctx.save();
         ctx.translate(player.x + player.width/2, player.y + player.height/2);
+        // --- RESTORED "OLD" WOBBLE CONE VISUALS ---
         const wobble = Math.sin(frameCountRef.current * 0.5) * 5;
         const grad = ctx.createRadialGradient(0, 0, 10, 0, 0, 60);
         grad.addColorStop(0, ELEMENT_COLORS[player.element]);
