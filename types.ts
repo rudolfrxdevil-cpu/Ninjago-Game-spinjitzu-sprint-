@@ -1,6 +1,7 @@
 export enum GameState {
   START_MENU = 'START_MENU',
   TRAINING_SETUP = 'TRAINING_SETUP', // Formerly MENU
+  REALM_SELECT = 'REALM_SELECT',
   STORY_MODE = 'STORY_MODE',
   LOADING_MISSION = 'LOADING_MISSION',
   PLAYING = 'PLAYING',
@@ -15,10 +16,18 @@ export enum NinjaElement {
   ENERGY = 'ENERGY'
 }
 
+export enum Realm {
+  NINJAGO = 'Ninjago',
+  CURSED_REALM = 'The Cursed Realm', // Die verfluchte Welt
+  FIRST_REALM = 'The First Realm',
+  DJINJAGO = 'Djinjago',
+  CLOUD_KINGDOM = 'The Cloud Kingdom' // Das Wolkenkönigreich
+}
+
 export interface MissionData {
   missionTitle: string;
   introText: string;
-  environmentType: 'FOREST' | 'VOLCANO' | 'ICE' | 'DOJO';
+  environmentType: string; // Now can be a Realm key too
   difficulty: number; // 1-10
   obstacleTheme: string; // Description for flavor
 }
