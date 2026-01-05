@@ -56,6 +56,10 @@
         background: #e53e3e; 
         border-radius: 4px;
       }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
+      }
     </style>
   <script type="importmap">
 {
@@ -631,7 +635,13 @@
               if (isSpinningRef.current) {
                   obstaclesRef.current.splice(i, 1);
                   soundManager.playCollect();
-                  createParticles(obs.x + obs.width/2, obs.y + obs.height/2, ELEMENT_COLORS[player.element], 15);
+                  
+                  // Enemy specific death particles
+                  const pColor = obs.type === 'ENEMY' 
+                    ? (missionData.environmentType === Realm.CURSED_REALM ? '#34d399' : '#fca5a5') 
+                    : ELEMENT_COLORS[player.element];
+
+                  createParticles(obs.x + obs.width/2, obs.y + obs.height/2, pColor, 15);
                   createParticles(obs.x + obs.width/2, obs.y + obs.height/2, '#ffffff', 5);
                   scoreRef.current += 10;
                   continue;
@@ -686,11 +696,96 @@
               ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
               ctx.fill();
             } else if (obs.type === 'ENEMY') {
-              ctx.fillStyle = '#1e3a8a';
-              ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-              ctx.fillStyle = 'yellow';
-              ctx.fillRect(obs.x + 5, obs.y + 10, 8, 8);
-              ctx.fillRect(obs.x + 20, obs.y + 10, 8, 8);
+                // --- REALM SPECIFIC ENEMIES ---
+                if (missionData.environmentType === Realm.CURSED_REALM) {
+                    // GHOST (Morro style)
+                    ctx.fillStyle = 'rgba(52, 211, 153, 0.8)'; // Green Ghost
+                    ctx.beginPath();
+                    ctx.moveTo(obs.x, obs.y + obs.height);
+                    ctx.lineTo(obs.x, obs.y + 10);
+                    ctx.arc(obs.x + obs.width/2, obs.y + 10, obs.width/2, Math.PI, 0); // Head
+                    ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+                    // Jagged bottom
+                    ctx.lineTo(obs.x + obs.width * 0.75, obs.y + obs.height - 5);
+                    ctx.lineTo(obs.x + obs.width * 0.5, obs.y + obs.height);
+                    ctx.lineTo(obs.x + obs.width * 0.25, obs.y + obs.height - 5);
+                    ctx.lineTo(obs.x, obs.y + obs.height);
+                    ctx.fill();
+                    
+                    // Eyes
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(obs.x + 12, obs.y + 15, 3, 0, Math.PI * 2);
+                    ctx.arc(obs.x + 28, obs.y + 15, 3, 0, Math.PI * 2);
+                    ctx.fill();
+        
+                } else if (missionData.environmentType === Realm.DJINJAGO) {
+                    // SKY PIRATE
+                    ctx.fillStyle = '#c2410c'; // Orange outfit
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    // Bandana
+                    ctx.fillStyle = '#1e3a8a';
+                    ctx.fillRect(obs.x, obs.y, obs.width, 10); 
+                    // Eye patch
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(obs.x + 12, obs.y + 15, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff'; // Other eye
+                    ctx.beginPath();
+                    ctx.arc(obs.x + 28, obs.y + 15, 3, 0, Math.PI * 2);
+                    ctx.fill();
+        
+                } else if (missionData.environmentType === Realm.FIRST_REALM) {
+                     // DRAGON HUNTER / ONI
+                     ctx.fillStyle = '#451a03'; // Dark brown
+                     ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                     // Horns
+                     ctx.fillStyle = '#a8a29e';
+                     ctx.beginPath();
+                     ctx.moveTo(obs.x, obs.y);
+                     ctx.lineTo(obs.x - 5, obs.y - 10);
+                     ctx.lineTo(obs.x + 10, obs.y);
+                     ctx.fill();
+                     ctx.beginPath();
+                     ctx.moveTo(obs.x + obs.width, obs.y);
+                     ctx.lineTo(obs.x + obs.width + 5, obs.y - 10);
+                     ctx.lineTo(obs.x + obs.width - 10, obs.y);
+                     ctx.fill();
+                     // Red Eyes
+                     ctx.fillStyle = '#ef4444';
+                     ctx.fillRect(obs.x + 8, obs.y + 10, 8, 4);
+                     ctx.fillRect(obs.x + 24, obs.y + 10, 8, 4);
+        
+                } else if (missionData.environmentType === Realm.CLOUD_KINGDOM) {
+                    // CORRUPT MONK
+                    ctx.fillStyle = '#fef08a'; // Light yellow robes
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    ctx.strokeStyle = '#eab308'; // Gold outline
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+                     // Eyes
+                     ctx.fillStyle = '#000';
+                     ctx.fillRect(obs.x + 10, obs.y + 12, 5, 5);
+                     ctx.fillRect(obs.x + 25, obs.y + 12, 5, 5);
+        
+                } else {
+                    // GENERIC / SERPENTINE
+                    ctx.fillStyle = missionData.environmentType === Realm.NINJAGO ? '#16a34a' : '#1e3a8a';
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    ctx.fillStyle = 'yellow';
+                    ctx.fillRect(obs.x + 5, obs.y + 10, 8, 8);
+                    ctx.fillRect(obs.x + 20, obs.y + 10, 8, 8);
+                    // Snake fangs for Ninjago
+                    if (missionData.environmentType === Realm.NINJAGO) {
+                        ctx.fillStyle = '#fff';
+                        ctx.beginPath();
+                        ctx.moveTo(obs.x + 15, obs.y + 25);
+                        ctx.lineTo(obs.x + 15, obs.y + 35);
+                        ctx.lineTo(obs.x + 25, obs.y + 25);
+                        ctx.fill();
+                    }
+                }
             } else {
               ctx.fillStyle = '#7f1d1d';
               ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
@@ -791,11 +886,38 @@
         const [totalNinjaPoints, setTotalNinjaPoints] = useState(0);
         const [isLoading, setIsLoading] = useState(false);
         const [isMuted, setIsMuted] = useState(soundManager.getMuted());
+        const [isDevMode, setIsDevMode] = useState(false);
+        const [showDevModal, setShowDevModal] = useState(false);
+        const [devPasswordInput, setDevPasswordInput] = useState('');
 
         useEffect(() => {
           const savedPoints = localStorage.getItem('ninjaPoints');
           if (savedPoints) setTotalNinjaPoints(parseInt(savedPoints, 10));
         }, []);
+
+        const openDevModal = () => {
+          setDevPasswordInput('');
+          setShowDevModal(true);
+          soundManager.playClick();
+        };
+
+        const closeDevModal = () => {
+          setShowDevModal(false);
+          soundManager.playClick();
+        };
+
+        const submitDevPassword = (e) => {
+            e.preventDefault();
+            if (devPasswordInput === "Acronixdev") {
+                setIsDevMode(true);
+                setShowDevModal(false);
+                soundManager.playCollect();
+            } else {
+                soundManager.playCrash();
+                alert("Incorrect Password.");
+                setDevPasswordInput('');
+            }
+        };
 
         const handleStartMission = async (name, element, realm) => {
           soundManager.playClick();
@@ -842,7 +964,7 @@
           if (!muted) soundManager.playClick();
         };
 
-        const isFullPotentialUnlocked = totalNinjaPoints >= 15;
+        const isFullPotentialUnlocked = totalNinjaPoints >= 15 || isDevMode;
         const progressPercent = Math.min((totalNinjaPoints / 15) * 100, 100);
 
         return (
@@ -850,9 +972,13 @@
             <div className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: "url('https://vignette.wikia.nocookie.net/ninjago/images/d/d0/S8NinjagoCity.png/revision/latest?cb=20170730210528')" }} />
             <div className="absolute inset-0 z-0 bg-black/60 bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] opacity-80" />
             <button onClick={toggleMute} className="absolute top-4 right-4 z-50 bg-slate-800/80 p-3 rounded-full border-2 border-slate-500 hover:bg-slate-700 text-white transition-all shadow-lg">{isMuted ? '🔇' : '🔊'}</button>
+
             <div className="relative z-10 w-full flex flex-col items-center">
               <h1 className="text-5xl md:text-6xl text-red-600 mb-2 ninja-font drop-shadow-[0_0_10px_rgba(220,38,38,0.8)] text-center">Spinjitzu Sprint</h1>
-              <p className="text-slate-200 mb-8 tracking-widest uppercase text-sm font-bold drop-shadow-md">A Gemini Powered Ninja Training</p>
+              <p className="text-slate-200 mb-8 tracking-widest uppercase text-sm font-bold drop-shadow-md">
+                A Gemini Powered Ninja Training
+                {isDevMode && <span className="text-yellow-400 ml-2 animate-pulse">[DEV MODE ACTIVE]</span>}
+              </p>
 
               {gameState === GameState.START_MENU && (
                 <div className="w-full max-w-4xl flex flex-col gap-6">
@@ -883,6 +1009,17 @@
                       <div className={`inline-block px-4 py-2 font-bold rounded uppercase text-sm border ${isFullPotentialUnlocked ? 'bg-purple-700 text-purple-100 border-purple-600' : 'bg-slate-700 text-slate-500 border-slate-600'}`}>{isFullPotentialUnlocked ? 'Select Realm' : 'Unlock at 15 Points'}</div>
                     </button>
                   </div>
+
+                  {!isDevMode && (
+                      <div className="text-center mt-4">
+                          <button 
+                              onClick={openDevModal}
+                              className="px-6 py-2 bg-slate-800/80 border border-slate-700 rounded text-slate-500 hover:text-white hover:border-red-500 hover:bg-slate-700 transition-all text-xs uppercase font-bold tracking-widest font-mono"
+                          >
+                              [ Developer Override ]
+                          </button>
+                      </div>
+                  )}
                 </div>
               )}
 
@@ -949,6 +1086,29 @@
                 </div>
               )}
             </div>
+
+             {/* Dev Mode Modal Overlay */}
+             {showDevModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4">
+                    <div className="bg-slate-800 border-2 border-red-500 p-6 rounded-lg w-full max-w-sm shadow-2xl animate-[fadeIn_0.2s_ease-out]">
+                        <h3 className="text-xl text-red-500 ninja-font mb-4 text-center tracking-widest">Developer Access</h3>
+                        <form onSubmit={submitDevPassword} className="flex flex-col gap-4">
+                            <input 
+                                type="password" 
+                                value={devPasswordInput}
+                                onChange={(e) => setDevPasswordInput(e.target.value)}
+                                placeholder="Enter Password"
+                                className="w-full p-3 bg-slate-900 border border-slate-600 rounded text-white focus:border-red-500 outline-none transition-colors text-center font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal"
+                                autoFocus
+                            />
+                            <div className="flex gap-3 mt-2">
+                                    <button type="button" onClick={closeDevModal} className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold uppercase text-sm transition-colors">Cancel</button>
+                                    <button type="submit" className="flex-1 py-3 bg-red-600 hover:bg-red-500 rounded text-white font-bold uppercase text-sm transition-colors shadow-lg shadow-red-900/50">Unlock</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+              )}
           </div>
         );
       };

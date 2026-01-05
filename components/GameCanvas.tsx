@@ -10,8 +10,8 @@ import {
   ENVIRONMENT_COLORS, 
   ELEMENT_COLORS
 } from '../constants';
-import { MissionData, NinjaElement, PlayerState, Obstacle, Particle } from '../types';
-import { soundManager } from '../utils/sound';
+import { MissionData, NinjaElement, PlayerState, Obstacle, Particle, Realm } from '../types';
+import { soundManager } from '../services/sound';
 
 interface GameCanvasProps {
   missionData: MissionData;
@@ -42,12 +42,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
   const playerRef = useRef<PlayerState>({
     x: 100,
     y: CANVAS_HEIGHT - GROUND_HEIGHT - PLAYER_SIZE,
+    z: 0,
     width: PLAYER_SIZE,
     height: PLAYER_SIZE,
+    vx: 0,
     vy: 0,
+    vz: 0,
     isGrounded: true,
     element: ninjaElement,
-    rotation: 0
+    rotation: 0,
+    facing: 1,
+    invulnerable: 0
   });
 
   const obstaclesRef = useRef<Obstacle[]>([]);
@@ -72,8 +77,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
         id: Math.random(),
         x,
         y,
+        z: 0,
         vx: (Math.random() - 0.5) * 15, 
         vy: (Math.random() - 0.5) * 15,
+        vz: 0,
         life: 1.0,
         color
       });
@@ -171,7 +178,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
       if (spinEnergyRef.current <= 0) {
         spinEnergyRef.current = 0;
         isSpinningRef.current = false;
-        soundManager.stopSpin(); // Force stop sound if energy runs out
+        soundManager.stopSpin();
       }
     } else {
       spinEnergyRef.current += 0.3;
@@ -246,7 +253,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
         if (isSpinningRef.current) {
             obstaclesRef.current.splice(i, 1);
             soundManager.playCollect();
-            createParticles(obs.x + obs.width/2, obs.y + obs.height/2, ELEMENT_COLORS[player.element], 15);
+            // Enemy specific death particles
+            const pColor = obs.type === 'ENEMY' 
+                ? (missionData.environmentType === Realm.CURSED_REALM ? '#34d399' : '#fca5a5') 
+                : ELEMENT_COLORS[player.element];
+            
+            createParticles(obs.x + obs.width/2, obs.y + obs.height/2, pColor, 15);
             createParticles(obs.x + obs.width/2, obs.y + obs.height/2, '#ffffff', 5);
             scoreRef.current += 10;
             continue;
@@ -302,12 +314,98 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
         ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
         ctx.fill();
       } else if (obs.type === 'ENEMY') {
-        ctx.fillStyle = '#1e3a8a';
-        ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
-        ctx.fillStyle = 'yellow';
-        ctx.fillRect(obs.x + 5, obs.y + 10, 8, 8);
-        ctx.fillRect(obs.x + 20, obs.y + 10, 8, 8);
+        // --- REALM SPECIFIC ENEMIES ---
+        if (missionData.environmentType === Realm.CURSED_REALM) {
+            // GHOST (Morro style)
+            ctx.fillStyle = 'rgba(52, 211, 153, 0.8)'; // Green Ghost
+            ctx.beginPath();
+            ctx.moveTo(obs.x, obs.y + obs.height);
+            ctx.lineTo(obs.x, obs.y + 10);
+            ctx.arc(obs.x + obs.width/2, obs.y + 10, obs.width/2, Math.PI, 0); // Head
+            ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+            // Jagged bottom
+            ctx.lineTo(obs.x + obs.width * 0.75, obs.y + obs.height - 5);
+            ctx.lineTo(obs.x + obs.width * 0.5, obs.y + obs.height);
+            ctx.lineTo(obs.x + obs.width * 0.25, obs.y + obs.height - 5);
+            ctx.lineTo(obs.x, obs.y + obs.height);
+            ctx.fill();
+            
+            // Eyes
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(obs.x + 12, obs.y + 15, 3, 0, Math.PI * 2);
+            ctx.arc(obs.x + 28, obs.y + 15, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+        } else if (missionData.environmentType === Realm.DJINJAGO) {
+            // SKY PIRATE
+            ctx.fillStyle = '#c2410c'; // Orange outfit
+            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            // Bandana
+            ctx.fillStyle = '#1e3a8a';
+            ctx.fillRect(obs.x, obs.y, obs.width, 10); 
+            // Eye patch
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(obs.x + 12, obs.y + 15, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#fff'; // Other eye
+            ctx.beginPath();
+            ctx.arc(obs.x + 28, obs.y + 15, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+        } else if (missionData.environmentType === Realm.FIRST_REALM) {
+             // DRAGON HUNTER / ONI
+             ctx.fillStyle = '#451a03'; // Dark brown
+             ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+             // Horns
+             ctx.fillStyle = '#a8a29e';
+             ctx.beginPath();
+             ctx.moveTo(obs.x, obs.y);
+             ctx.lineTo(obs.x - 5, obs.y - 10);
+             ctx.lineTo(obs.x + 10, obs.y);
+             ctx.fill();
+             ctx.beginPath();
+             ctx.moveTo(obs.x + obs.width, obs.y);
+             ctx.lineTo(obs.x + obs.width + 5, obs.y - 10);
+             ctx.lineTo(obs.x + obs.width - 10, obs.y);
+             ctx.fill();
+             // Red Eyes
+             ctx.fillStyle = '#ef4444';
+             ctx.fillRect(obs.x + 8, obs.y + 10, 8, 4);
+             ctx.fillRect(obs.x + 24, obs.y + 10, 8, 4);
+
+        } else if (missionData.environmentType === Realm.CLOUD_KINGDOM) {
+            // CORRUPT MONK
+            ctx.fillStyle = '#fef08a'; // Light yellow robes
+            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            ctx.strokeStyle = '#eab308'; // Gold outline
+            ctx.lineWidth = 2;
+            ctx.strokeRect(obs.x, obs.y, obs.width, obs.height);
+             // Eyes
+             ctx.fillStyle = '#000';
+             ctx.fillRect(obs.x + 10, obs.y + 12, 5, 5);
+             ctx.fillRect(obs.x + 25, obs.y + 12, 5, 5);
+
+        } else {
+            // GENERIC / SERPENTINE
+            ctx.fillStyle = missionData.environmentType === Realm.NINJAGO ? '#16a34a' : '#1e3a8a';
+            ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+            ctx.fillStyle = 'yellow';
+            ctx.fillRect(obs.x + 5, obs.y + 10, 8, 8);
+            ctx.fillRect(obs.x + 20, obs.y + 10, 8, 8);
+            // Snake fangs for Ninjago
+            if (missionData.environmentType === Realm.NINJAGO) {
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.moveTo(obs.x + 15, obs.y + 25);
+                ctx.lineTo(obs.x + 15, obs.y + 35);
+                ctx.lineTo(obs.x + 25, obs.y + 25);
+                ctx.fill();
+            }
+        }
       } else {
+        // BLOCK
         ctx.fillStyle = '#7f1d1d';
         ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
         ctx.fillStyle = '#991b1b';
@@ -319,7 +417,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ missionData, ninjaElement, onGa
     if (isSpinningRef.current) {
         ctx.save();
         ctx.translate(player.x + player.width/2, player.y + player.height/2);
-        // --- RESTORED "OLD" WOBBLE CONE VISUALS ---
         const wobble = Math.sin(frameCountRef.current * 0.5) * 5;
         const grad = ctx.createRadialGradient(0, 0, 10, 0, 0, 60);
         grad.addColorStop(0, ELEMENT_COLORS[player.element]);

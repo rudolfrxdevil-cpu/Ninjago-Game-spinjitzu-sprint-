@@ -35,12 +35,25 @@ export interface MissionData {
 export interface PlayerState {
   x: number;
   y: number;
+  z: number; // Height off ground
+  vx: number;
+  vy: number;
+  vz: number; // Vertical velocity (jump)
   width: number;
   height: number;
-  vy: number;
   isGrounded: boolean;
   element: NinjaElement;
   rotation: number; // For spinjitzu effect
+  facing: 1 | -1; // 1 right, -1 left
+  invulnerable: number; // Frames of invulnerability
+}
+
+export interface Platform {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: 'GROUND' | 'FLOATING';
 }
 
 export interface Obstacle {
@@ -51,14 +64,22 @@ export interface Obstacle {
   height: number;
   type: 'SPIKE' | 'BLOCK' | 'ENEMY';
   speed: number;
+  patrolCenter?: number; // For story mode enemy AI
+  direction?: 1 | -1;
+  health?: number;
+  // For top-down tracking
+  targetX?: number; 
+  targetY?: number;
 }
 
 export interface Particle {
   id: number;
   x: number;
   y: number;
+  z: number;
   vx: number;
   vy: number;
+  vz: number;
   life: number;
   color: string;
 }

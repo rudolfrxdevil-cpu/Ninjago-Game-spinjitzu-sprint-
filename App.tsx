@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import GameCanvas from './components/GameCanvas';
+import StoryGameCanvas from './components/StoryGameCanvas';
 import MissionBriefing from './components/MissionBriefing';
 import { GameState, MissionData, NinjaElement, Realm } from './types';
 import { generateMission } from './services/geminiService';
-import { soundManager } from './utils/sound';
+import { soundManager } from './services/sound';
 import { REALM_INFO, ENVIRONMENT_COLORS } from './constants';
 
 const App: React.FC = () => {
@@ -15,9 +16,20 @@ const App: React.FC = () => {
   const [lastScore, setLastScore] = useState(0);
   const [earnedPointsInRun, setEarnedPointsInRun] = useState(0);
   const [totalNinjaPoints, setTotalNinjaPoints] = useState(0);
+  const [isDevMode, setIsDevMode] = useState(false);
   
+  // Story Mode State
+  const [hearts, setHearts] = useState(5);
+  
+  // Dev Mode Modal State
+  const [showDevModal, setShowDevModal] = useState(false);
+  const [devPasswordInput, setDevPasswordInput] = useState('');
+
   const [isLoading, setIsLoading] = useState(false);
   const [isMuted, setIsMuted] = useState(soundManager.getMuted());
+
+  // Check offline status
+  const isOffline = !process.env.API_KEY || process.env.API_KEY.length === 0;
 
   // Load points from local storage on mount
   useEffect(() => {
@@ -27,11 +39,36 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const openDevModal = () => {
+    setDevPasswordInput('');
+    setShowDevModal(true);
+    soundManager.playClick();
+  };
+
+  const closeDevModal = () => {
+    setShowDevModal(false);
+    soundManager.playClick();
+  };
+
+  const submitDevPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (devPasswordInput === "Acronixdev") {
+        setIsDevMode(true);
+        setShowDevModal(false);
+        soundManager.playCollect();
+    } else {
+        soundManager.playCrash();
+        alert("Incorrect Password.");
+        setDevPasswordInput('');
+    }
+  };
+
   const handleStartMission = async (name: string, element: NinjaElement, realm?: Realm) => {
     soundManager.playClick();
     setNinjaElement(element);
     setIsLoading(true);
     setGameState(GameState.LOADING_MISSION);
+    setHearts(5); // Reset health for story mode
     
     try {
       const data = await generateMission(name, element, realm);
@@ -39,17 +76,47 @@ const App: React.FC = () => {
       setGameState(GameState.PLAYING);
     } catch (error) {
       console.error("Failed to start mission", error);
-      setGameState(GameState.TRAINING_SETUP);
+      // Fallback
+      setMissionData({
+          missionTitle: realm ? `Journey to ${realm}` : "Offline Dojo",
+          introText: "Offline Mode Active. Good luck!",
+          environmentType: realm || "DOJO",
+          difficulty: 3,
+          obstacleTheme: "Standard Enemies"
+      });
+      setGameState(GameState.PLAYING);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleGameOver = (score: number) => {
+  const handleDamage = () => {
+      setHearts(prev => {
+          const newVal = prev - 1;
+          if (newVal <= 0) {
+              handleGameOver(0); 
+          }
+          return newVal;
+      });
+  };
+
+  const handleGameOver = (score: number, success?: boolean) => {
     setLastScore(score);
     
-    // Calculate Ninja Points (1 per 100 score)
-    const newPoints = Math.floor(score / 100);
+    let newPoints = 0;
+    // Story Mode Calculation
+    if (missionData?.environmentType !== 'DOJO') {
+        // If story mode and reached end (success)
+        if (success) {
+            newPoints = 5; 
+        } else {
+            newPoints = Math.floor(score / 500); 
+        }
+    } else {
+        // Training Mode
+        newPoints = Math.floor(score / 100);
+    }
+
     setEarnedPointsInRun(newPoints);
     
     const newTotal = totalNinjaPoints + newPoints;
@@ -61,7 +128,6 @@ const App: React.FC = () => {
 
   const resetGame = () => {
     soundManager.playClick();
-    // Return to the appropriate menu based on previous mode? For simplicity, go to Training setup or Main Menu
     setGameState(GameState.START_MENU);
     setMissionData(null);
   };
@@ -78,8 +144,19 @@ const App: React.FC = () => {
     if (!muted) soundManager.playClick();
   };
 
-  const isFullPotentialUnlocked = totalNinjaPoints >= 15;
-  const progressPercent = Math.min((totalNinjaPoints / 15) * 100, 100);
+  // --- PROGRESSION LOGIC ---
+  const MAX_POINTS = 15;
+  const progressPercent = Math.min((totalNinjaPoints / MAX_POINTS) * 100, 100);
+  
+  const unlockAirjitzu = totalNinjaPoints >= 5 || isDevMode;
+  const unlockRisingDragon = totalNinjaPoints >= 10 || isDevMode;
+  const unlockElementalDragon = totalNinjaPoints >= 15 || isDevMode;
+  
+  // Story mode is unlocked if you have at least Airjitzu (5 points) or are offline/dev
+  // Note: Previous request forced unlock for testing, reverting to points-based but lenient for offline
+  const isStoryModeUnlocked = totalNinjaPoints >= 5 || isDevMode || isOffline;
+  
+  const isStoryMode = missionData && missionData.environmentType !== 'DOJO';
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
@@ -108,14 +185,23 @@ const App: React.FC = () => {
         <h1 className="text-5xl md:text-6xl text-red-600 mb-2 ninja-font drop-shadow-[0_0_10px_rgba(220,38,38,0.8)] text-center">
           Spinjitzu Sprint
         </h1>
-        <p className="text-slate-200 mb-8 tracking-widest uppercase text-sm font-bold drop-shadow-md">A Gemini Powered Ninja Training</p>
+        <p className="text-slate-200 mb-8 tracking-widest uppercase text-sm font-bold drop-shadow-md">
+          A Gemini Powered Ninja Training
+          {isDevMode && <span className="text-yellow-400 ml-2 animate-pulse">[DEV MODE ACTIVE]</span>}
+        </p>
+
+        {isOffline && gameState === GameState.START_MENU && (
+             <div className="mb-4 bg-yellow-600/90 text-white px-4 py-2 rounded font-bold text-xs uppercase tracking-widest shadow-lg border border-yellow-400">
+                Offline Mode Active (No API Key)
+             </div>
+        )}
 
         {/* --- START MENU --- */}
         {gameState === GameState.START_MENU && (
           <div className="w-full max-w-4xl flex flex-col gap-6">
             
             {/* Ninja Status Bar */}
-            <div className="bg-slate-800/90 border-2 border-slate-600 p-6 rounded-xl shadow-2xl backdrop-blur-sm">
+            <div className="bg-slate-800/90 border-2 border-slate-600 p-6 rounded-xl shadow-2xl backdrop-blur-sm pt-8">
               <div className="flex flex-col md:flex-row justify-between items-center mb-2">
                 <h3 className="text-xl text-yellow-500 ninja-font">Ninja Status</h3>
                 <div className="text-white font-bold text-lg">
@@ -123,15 +209,39 @@ const App: React.FC = () => {
                 </div>
               </div>
               
-              {/* Progress Bar */}
-              <div className="w-full bg-slate-900 h-6 rounded-full border border-slate-700 overflow-hidden relative">
-                <div 
-                  className={`h-full transition-all duration-1000 ${isFullPotentialUnlocked ? 'bg-gradient-to-r from-yellow-400 to-red-500 animate-pulse' : 'bg-green-500'}`}
-                  style={{ width: `${progressPercent}%` }}
-                ></div>
-                <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white shadow-black drop-shadow-md">
-                   {isFullPotentialUnlocked ? 'TRUE POTENTIAL UNLOCKED' : `${totalNinjaPoints} / 15 to True Potential`}
-                </div>
+              {/* Progress Bar with Markers */}
+              <div className="relative w-full h-8 mt-4 mb-2">
+                 {/* Bar Background */}
+                 <div className="absolute inset-0 bg-slate-900 rounded-full border border-slate-700 overflow-hidden">
+                     <div 
+                        className={`h-full transition-all duration-1000 ${unlockElementalDragon ? 'bg-gradient-to-r from-yellow-400 to-red-500' : 'bg-green-600'}`}
+                        style={{ width: `${progressPercent}%` }}
+                    ></div>
+                 </div>
+
+                 {/* Ability Marker: 5 Points (Airjitzu) */}
+                 <div className="absolute top-0 bottom-0 left-[33%] w-0.5 bg-slate-500/50"></div>
+                 <div className="absolute -top-6 left-[33%] -translate-x-1/2 flex flex-col items-center group">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 transition-colors ${unlockAirjitzu ? 'text-blue-400' : 'text-slate-600'}`}>Airjitzu</span>
+                    <div className={`w-3 h-3 rounded-full border-2 transition-all ${unlockAirjitzu ? 'bg-blue-500 border-white shadow-[0_0_8px_rgba(59,130,246,0.8)]' : 'bg-slate-800 border-slate-600'}`}></div>
+                 </div>
+
+                 {/* Ability Marker: 10 Points (Rising Dragon) */}
+                 <div className="absolute top-0 bottom-0 left-[66%] w-0.5 bg-slate-500/50"></div>
+                 <div className="absolute -top-6 left-[66%] -translate-x-1/2 flex flex-col items-center">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 transition-colors ${unlockRisingDragon ? 'text-orange-400' : 'text-slate-600'}`}>Dash</span>
+                    <div className={`w-3 h-3 rounded-full border-2 transition-all ${unlockRisingDragon ? 'bg-orange-500 border-white shadow-[0_0_8px_rgba(249,115,22,0.8)]' : 'bg-slate-800 border-slate-600'}`}></div>
+                 </div>
+
+                 {/* Ability Marker: 15 Points (True Potential) */}
+                 <div className="absolute top-0 bottom-0 right-0 w-0.5 bg-slate-500/50"></div>
+                 <div className="absolute -top-6 right-0 translate-x-1/4 flex flex-col items-center">
+                    <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 transition-colors ${unlockElementalDragon ? 'text-emerald-400' : 'text-slate-600'}`}>Dragon</span>
+                    <div className={`w-3 h-3 rounded-full border-2 transition-all ${unlockElementalDragon ? 'bg-emerald-500 border-white shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-slate-800 border-slate-600'}`}></div>
+                 </div>
+              </div>
+              <div className="text-center text-xs text-slate-500 italic mt-1">
+                 Collect points in Training Mode to unlock abilities.
               </div>
             </div>
 
@@ -149,7 +259,7 @@ const App: React.FC = () => {
                 </div>
                 <h2 className="text-3xl text-yellow-500 ninja-font mb-4">Training Mode</h2>
                 <p className="text-slate-300 mb-6">
-                  Endless procedural challenges. Earn Ninja Points to unlock Story Mode.
+                  Endless procedural challenges. Earn points here!
                 </p>
                 <div className="inline-block px-4 py-2 bg-yellow-600 text-slate-900 font-bold rounded uppercase text-sm">
                   Enter Dojo
@@ -159,44 +269,53 @@ const App: React.FC = () => {
               {/* Story Mode Card */}
               <button 
                 onClick={() => {
-                  if (isFullPotentialUnlocked) {
-                    soundManager.playClick();
-                    setGameState(GameState.REALM_SELECT);
-                  } else {
-                    soundManager.playCrash(); // Locked sound effect
-                  }
+                   if (isStoryModeUnlocked) {
+                      soundManager.playClick();
+                      setGameState(GameState.REALM_SELECT);
+                   } else {
+                      soundManager.playCrash();
+                   }
                 }}
-                disabled={!isFullPotentialUnlocked}
+                disabled={!isStoryModeUnlocked}
                 className={`flex-1 bg-slate-800/90 border-4 p-8 rounded-xl shadow-2xl transition-all group text-left relative overflow-hidden
-                  ${isFullPotentialUnlocked 
-                    ? 'border-purple-500 hover:border-purple-400 hover:scale-105 cursor-pointer' 
-                    : 'border-slate-700 opacity-75 grayscale cursor-not-allowed'}
+                  ${isStoryModeUnlocked ? 'border-purple-500 hover:border-purple-400 hover:scale-105 cursor-pointer' : 'border-slate-700 opacity-60 grayscale cursor-not-allowed'}
                 `}
               >
                 <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                   <div className={`w-24 h-24 rounded-full blur-2xl ${isFullPotentialUnlocked ? 'bg-purple-500' : 'bg-slate-500'}`}></div>
+                   <div className="w-24 h-24 rounded-full blur-2xl bg-purple-500"></div>
                 </div>
                 
-                {!isFullPotentialUnlocked && (
+                {!isStoryModeUnlocked && (
                     <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/40 backdrop-blur-[1px]">
                         <div className="bg-slate-900 border-2 border-red-500 px-4 py-2 rounded shadow-lg text-red-500 font-bold ninja-font text-xl transform -rotate-12">
-                            LOCKED
+                            LOCKED (Need 5 Pts)
                         </div>
                     </div>
                 )}
 
-                <h2 className={`text-3xl ninja-font mb-4 ${isFullPotentialUnlocked ? 'text-purple-400 group-hover:text-purple-300' : 'text-slate-500'}`}>
+                <h2 className="text-3xl ninja-font mb-4 text-purple-400 group-hover:text-purple-300">
                     Story Mode
                 </h2>
                 <p className="text-slate-400 mb-6">
-                  Travel to the 16 Realms. Fight ghosts, pirates, and dragons in epic locations.
+                  Free Roaming Adventure. Use unlocked abilities to explore.
                 </p>
-                <div className={`inline-block px-4 py-2 font-bold rounded uppercase text-sm border 
-                    ${isFullPotentialUnlocked ? 'bg-purple-700 text-purple-100 border-purple-600' : 'bg-slate-700 text-slate-500 border-slate-600'}`}>
-                  {isFullPotentialUnlocked ? 'Select Realm' : 'Unlock at 15 Points'}
+                <div className={`inline-block px-4 py-2 font-bold rounded uppercase text-sm border ${isStoryModeUnlocked ? 'bg-purple-700 text-purple-100 border-purple-600' : 'bg-slate-700 text-slate-500 border-slate-600'}`}>
+                  {isStoryModeUnlocked ? 'Select Realm' : 'Unlock at 5 Points'}
                 </div>
               </button>
             </div>
+
+            {/* Developer Access Button - In Start Menu */}
+            {!isDevMode && (
+                <div className="text-center mt-4">
+                    <button 
+                        onClick={openDevModal}
+                        className="px-6 py-2 bg-slate-800/80 border border-slate-700 rounded text-slate-500 hover:text-white hover:border-red-500 hover:bg-slate-700 transition-all text-xs uppercase font-bold tracking-widest font-mono"
+                    >
+                        [ Developer Override ]
+                    </button>
+                </div>
+            )}
           </div>
         )}
 
@@ -287,23 +406,42 @@ const App: React.FC = () => {
                  <p className="italic text-sm text-slate-300">"{missionData.introText}"</p>
                </div>
              </div>
-             <GameCanvas 
-               missionData={missionData} 
-               ninjaElement={ninjaElement} 
-               onGameOver={handleGameOver} 
-             />
+             
+             {/* RENDER THE CORRECT CANVAS BASED ON MODE */}
+             {isStoryMode ? (
+                 <StoryGameCanvas 
+                    missionData={missionData}
+                    ninjaElement={ninjaElement}
+                    onGameOver={handleGameOver}
+                    onDamage={handleDamage}
+                    hearts={hearts}
+                    unlockAirjitzu={unlockAirjitzu}
+                    unlockRisingDragon={unlockRisingDragon}
+                    unlockElementalDragon={unlockElementalDragon}
+                 />
+             ) : (
+                 <GameCanvas 
+                    missionData={missionData} 
+                    ninjaElement={ninjaElement} 
+                    onGameOver={(s) => handleGameOver(s)} 
+                 />
+             )}
           </div>
         )}
 
         {/* --- GAME OVER --- */}
         {gameState === GameState.GAME_OVER && (
           <div className="text-center bg-slate-800/95 backdrop-blur p-8 rounded-lg border-4 border-red-900 shadow-2xl max-w-md w-full">
-            <h2 className="text-4xl text-red-500 mb-4 ninja-font">Mission Failed!</h2>
-            <p className="text-white text-xl mb-6">You stumbled, but a ninja always gets back up.</p>
+            <h2 className="text-4xl text-red-500 mb-4 ninja-font">
+                {hearts > 0 ? "Mission Complete!" : "Mission Failed!"}
+            </h2>
+            <p className="text-white text-xl mb-6">
+                {hearts > 0 ? "The Realm is safe... for now." : "You stumbled, but a ninja always gets back up."}
+            </p>
             
             <div className="bg-slate-900/50 p-4 rounded-lg mb-8">
-              <div className="text-slate-400 text-sm uppercase font-bold tracking-wider">Distance Reached</div>
-              <div className="text-5xl font-bold text-white mb-2">{lastScore}m</div>
+              {!isStoryMode && <div className="text-slate-400 text-sm uppercase font-bold tracking-wider">Distance Reached</div>}
+              {!isStoryMode && <div className="text-5xl font-bold text-white mb-2">{lastScore}m</div>}
               
               <div className="flex items-center justify-center gap-2 mt-4 text-emerald-400">
                 <span className="text-xl font-bold">+{earnedPointsInRun} Ninja Points</span>
@@ -325,6 +463,30 @@ const App: React.FC = () => {
           </div>
         )}
       </div>
+      
+      {/* Dev Mode Modal Overlay */}
+      {showDevModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4">
+            <div className="bg-slate-800 border-2 border-red-500 p-6 rounded-lg w-full max-w-sm shadow-2xl animate-[fadeIn_0.2s_ease-out]">
+                <h3 className="text-xl text-red-500 ninja-font mb-4 text-center tracking-widest">Developer Access</h3>
+                <form onSubmit={submitDevPassword} className="flex flex-col gap-4">
+                    <input 
+                        type="password" 
+                        value={devPasswordInput}
+                        onChange={(e) => setDevPasswordInput(e.target.value)}
+                        placeholder="Enter Password"
+                        className="w-full p-3 bg-slate-900 border border-slate-600 rounded text-white focus:border-red-500 outline-none transition-colors text-center font-mono tracking-widest placeholder:font-sans placeholder:tracking-normal"
+                        autoFocus
+                    />
+                    <div className="flex gap-3 mt-2">
+                            <button type="button" onClick={closeDevModal} className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded text-white font-bold uppercase text-sm transition-colors">Cancel</button>
+                            <button type="submit" className="flex-1 py-3 bg-red-600 hover:bg-red-500 rounded text-white font-bold uppercase text-sm transition-colors shadow-lg shadow-red-900/50">Unlock</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 };
